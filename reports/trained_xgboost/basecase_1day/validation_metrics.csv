@@ -1,0 +1,2 @@
+model,split,horizon,accuracy,precision,recall,f1_score,threshold
+xgboost,validation,1day,0.87986743993372,0.950354609929078,0.886438809261301,0.9172846548773531,0.838
