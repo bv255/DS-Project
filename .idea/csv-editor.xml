@@ -10,6 +10,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="/reports/trained_logistic/cross_validation/confusion_matrix.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="/src/trained/results_lag_1/cv_summary.csv">
           <value>
             <Attribute>
