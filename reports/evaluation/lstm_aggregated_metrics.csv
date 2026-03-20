@@ -1,0 +1,4 @@
+model,horizon,split,accuracy,roc_auc,precision,recall,note
+lstm,1day,test,0.5968,0.714,0.9894,0.4399,Aggregated only — no row-level predictions. Re-run needed (lag 20).
+lstm,5day,test,0.5816,0.6902,0.9512,0.4363,Aggregated only — no row-level predictions. Re-run needed (lag 20).
+lstm,20day*,test,0.6782,0.6013,0.7701,0.782,Aggregated only — no row-level predictions. Re-run needed (lag 20).

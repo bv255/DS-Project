@@ -1,0 +1,4 @@
+model,accuracy_1day,accuracy_20days,accuracy_5days,bear_f2_1day,bear_f2_20days,bear_f2_5days,bear_recall_1day,bear_recall_20days,bear_recall_5days,macro_f2_1day,macro_f2_20days,macro_f2_5days,mcc_1day,mcc_20days,mcc_5days,roc_auc_1day,roc_auc_20days,roc_auc_5days
+logistic_regression,0.7755,0.2483,0.694,0.7439,0.6221,0.7267,0.8267,0.9967,0.8667,0.7657,0.3111,0.7035,0.5193,-0.05,0.4355,0.848,0.6039,0.8181
+patchtst,0.7224,0.4915,0.7361,0.7704,0.687,0.7416,0.8824,0.8676,0.8206,0.7346,0.5222,0.7375,0.4893,0.1936,0.4779,0.8557,0.6864,0.8406
+xgboost,0.8799,0.3978,0.8317,0.8264,0.5682,0.7883,0.86,0.7967,0.8467,0.8625,0.4373,0.8179,0.7046,0.0621,0.6142,0.949,0.644,0.9097
