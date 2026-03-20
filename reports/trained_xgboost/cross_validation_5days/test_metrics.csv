@@ -1,0 +1,2 @@
+model,target,best_params,accuracy,roc_auc,precision,recall,best_threshold
+xgboost,regime_binary,"{'learning_rate': 0.2, 'max_depth': 3, 'n_estimators': 200}",0.8266998341625207,0.9004856512141279,0.9394703656998739,0.8222958057395143,0.8801449537277222
