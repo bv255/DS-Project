@@ -78,14 +78,14 @@ nb.cells = [
         """
         PREDICTION_SPECS = {
             "Logistic": {
-                "1day": REPORTS_DIR / "trained_logistic" / "basecase_1day" / "predictions.csv",
-                "5days": REPORTS_DIR / "trained_logistic" / "basecase_5days" / "predictions.csv",
-                "20days": REPORTS_DIR / "trained_logistic" / "basecase_20days" / "predictions.csv",
+                "1day": REPORTS_DIR / "trained_logistic" / "basecase_1day" / "test_predictions.csv",
+                "5days": REPORTS_DIR / "trained_logistic" / "basecase_5days" / "test_predictions.csv",
+                "20days": REPORTS_DIR / "trained_logistic" / "basecase_20days" / "test_predictions.csv",
             },
             "XGBoost": {
-                "1day": REPORTS_DIR / "trained_xgboost" / "basecase_1day" / "predictions.csv",
-                "5days": REPORTS_DIR / "trained_xgboost" / "basecase_5days" / "predictions.csv",
-                "20days": REPORTS_DIR / "trained_xgboost" / "basecase_20days" / "predictions.csv",
+                "1day": REPORTS_DIR / "trained_xgboost" / "basecase_1day" / "test_predictions.csv",
+                "5days": REPORTS_DIR / "trained_xgboost" / "basecase_5days" / "test_predictions.csv",
+                "20days": REPORTS_DIR / "trained_xgboost" / "basecase_20days" / "test_predictions.csv",
             },
             "PatchTST": {
                 "1day": REPORTS_DIR / "trained_patchtst" / "results_lag_1" / "predictions.csv",
@@ -99,12 +99,7 @@ nb.cells = [
             },
         }
 
-        SPLIT_LABELS = {
-            "Logistic": "validation",
-            "XGBoost": "validation",
-            "PatchTST": "test",
-            "LSTM": "test",
-        }
+        SPLIT_LABELS = {model: "test" for model in MODEL_ORDER}
 
 
         def normalise_prediction_frame(df: pd.DataFrame, model: str, horizon: str) -> pd.DataFrame:
@@ -133,6 +128,10 @@ nb.cells = [
             frames = []
             for model, horizon_map in PREDICTION_SPECS.items():
                 for horizon, path in horizon_map.items():
+                    if not path.exists():
+                        raise FileNotFoundError(
+                            f"Missing {path}. Rerun the {model} {horizon} notebook export cell to produce test_predictions.csv."
+                        )
                     df = pd.read_csv(path)
                     frames.append(normalise_prediction_frame(df, model=model, horizon=horizon))
 
@@ -186,6 +185,29 @@ nb.cells = [
             return logistic_test, logistic_cv, xgb_test, xgb_grid
 
 
+        def intersect_test_windows(predictions: pd.DataFrame) -> pd.DataFrame:
+            aligned_frames = []
+            for horizon in HORIZONS:
+                subset = predictions[predictions["horizon"] == horizon].copy()
+                starts = subset.groupby("model", observed=True)["Date"].min()
+                ends = subset.groupby("model", observed=True)["Date"].max()
+                common_start = starts.max()
+                common_end = ends.min()
+
+                if common_start > common_end:
+                    raise ValueError(f"No common test window available for {horizon}")
+
+                aligned = subset[(subset["Date"] >= common_start) & (subset["Date"] <= common_end)].copy()
+                aligned["common_start"] = common_start
+                aligned["common_end"] = common_end
+                aligned_frames.append(aligned)
+
+            combined = pd.concat(aligned_frames, ignore_index=True)
+            combined["horizon"] = pd.Categorical(combined["horizon"], categories=HORIZONS, ordered=True)
+            combined["model"] = pd.Categorical(combined["model"], categories=MODEL_ORDER, ordered=True)
+            return combined.sort_values(["horizon", "model", "Date"]).reset_index(drop=True)
+
+
         def load_training_curves():
             xgb_frames = []
             for horizon in HORIZONS:
@@ -227,7 +249,8 @@ nb.cells = [
 
 
         predictions = load_all_predictions()
-        metrics = summarise_metrics(predictions)
+        aligned_predictions = intersect_test_windows(predictions)
+        metrics = summarise_metrics(aligned_predictions)
         logistic_cv_test, logistic_cv_folds, xgb_cv_test, xgb_cv_grid = load_cross_validation_artifacts()
         xgb_learning_curves, patchtst_training = load_training_curves()
 
@@ -238,8 +261,8 @@ nb.cells = [
         """
         ## Unified Forecast Metrics
 
-        These metrics are recomputed directly from the exported `predictions.csv` files so that all four model
-        families are summarised in one consistent table.
+        These metrics are recomputed directly from the exported held-out `test_predictions.csv` or equivalent
+        files and restricted to the common overlapping test window for each horizon.
         """
     ),
     code(
@@ -289,8 +312,8 @@ nb.cells = [
         """
         ## Horizon-Wise Probability Timelines
 
-        To make the outputs easier to compare, the plots below use the same format for all four model families.
-        Each panel shows the last 180 rows of the exported prediction period for one horizon.
+        The first view keeps a compact recent slice for readability. The second view shows the full aligned test
+        window for each horizon using the same visual structure.
         """
     ),
     code(
@@ -298,25 +321,58 @@ nb.cells = [
         fig, axes = plt.subplots(len(HORIZONS), 1, figsize=(16, 13), sharex=False)
         if len(HORIZONS) == 1:
             axes = [axes]
-
+        
         for ax, horizon in zip(axes, HORIZONS):
-            subset = predictions[predictions["horizon"] == horizon].copy()
+            subset = aligned_predictions[aligned_predictions["horizon"] == horizon].copy()
             for model in MODEL_ORDER:
                 df = subset[subset["model"] == model].sort_values("Date").tail(180)
                 ax.plot(df["Date"], df["y_pred_prob"], label=model, color=MODEL_COLORS[model], linewidth=2)
-
+        
             truth = subset[subset["model"] == "Logistic"].sort_values("Date").tail(180)
-            ax.plot(truth["Date"], truth["y_true"], color="#111111", alpha=0.35, linewidth=1.4, label="True regime")
-            ax.axhline(0.5, color="#888888", linestyle="--", linewidth=1)
+            ax.plot(truth["Date"], truth["y_true"], color="#008000", alpha=0.5, linewidth=1.8, label="True regime")
+            # ax.axhline(0.5, color="#888888", linestyle="--", linewidth=1)
             ax.set_ylim(-0.05, 1.05)
-            ax.set_title(f"{horizon} predicted bull probability")
+            common_start = subset["common_start"].iloc[0].date()
+            common_end = subset["common_end"].iloc[0].date()
+            ax.set_title(f"{horizon} predicted bull probability ({common_start} to {common_end})")
             ax.set_ylabel("Probability")
-            ax.legend(ncol=5, fontsize=9, loc="upper left")
-
+            ax.legend(ncol=5, fontsize=12, loc="lower left")
+            ax.grid(False)
+        
         axes[-1].set_xlabel("Date")
-        fig.suptitle("Prediction Timelines by Horizon", y=1.01, fontsize=18)
+        fig.suptitle("Prediction Timelines on Common Test Windows", y=1.01, fontsize=18)
         plt.tight_layout()
         save_current_figure("prediction_timelines_by_horizon.png")
+        plt.show()
+        """
+    ),
+    code(
+        """
+        fig, axes = plt.subplots(len(HORIZONS), 1, figsize=(16, 13), sharex=False)
+        if len(HORIZONS) == 1:
+            axes = [axes]
+        
+        for ax, horizon in zip(axes, HORIZONS):
+            subset = aligned_predictions[aligned_predictions["horizon"] == horizon].copy()
+            for model in MODEL_ORDER:
+                df = subset[subset["model"] == model].sort_values("Date")
+                ax.plot(df["Date"], df["y_pred_prob"], label=model, color=MODEL_COLORS[model], linewidth=1)
+        
+            truth = subset[subset["model"] == "Logistic"].sort_values("Date")
+            ax.plot(truth["Date"], truth["y_true"], color="#008000", alpha=0.5, linewidth=1.8, label="True regime")
+            # ax.axhline(0.5, color="#888888", linestyle="--", linewidth=1)
+            ax.set_ylim(-0.05, 1.05)
+            common_start = subset["common_start"].iloc[0].date()
+            common_end = subset["common_end"].iloc[0].date()
+            ax.set_title(f"{horizon} full test window ({common_start} to {common_end})")
+            ax.set_ylabel("Probability")
+            ax.legend(ncol=5, fontsize=9, loc="upper left")
+            ax.grid(False)
+        
+        axes[-1].set_xlabel("Date")
+        fig.suptitle("Prediction Timelines Across the Full Common Test Window", y=1.01, fontsize=18)
+        plt.tight_layout()
+        save_current_figure("prediction_timelines_full_test_window.png")
         plt.show()
         """
     ),
@@ -349,6 +405,53 @@ nb.cells = [
 
         plt.tight_layout()
         save_current_figure("roc_auc_ranking_by_horizon.png")
+        plt.show()
+        """
+    ),
+    md(
+        """
+        ## Class Balance in the Common Test Window
+
+        This chart shows the bull/bear composition in the aligned comparison window for each horizon.
+        It helps explain why some horizons are harder to model and why precision/recall tradeoffs can shift.
+        """
+    ),
+    code(
+        """
+        class_balance = (
+            aligned_predictions[aligned_predictions["model"] == "Logistic"][["Date", "horizon", "y_true"]]
+            .drop_duplicates(subset=["Date", "horizon"])
+            .assign(regime=lambda df: np.where(df["y_true"] == 1, "bull", "bear"))
+            .groupby(["horizon", "regime"], observed=True)
+            .size()
+            .reset_index(name="count")
+        )
+        class_balance["horizon"] = pd.Categorical(class_balance["horizon"], categories=HORIZONS, ordered=True)
+
+        fig, axes = plt.subplots(1, 3, figsize=(16, 4.8), sharey=True)
+        regime_palette = {"bull": "#2E8B57", "bear": "#B22222"}
+
+        for ax, horizon in zip(axes, HORIZONS):
+            subset = class_balance[class_balance["horizon"] == horizon].copy()
+            total = subset["count"].sum()
+            subset["share"] = subset["count"] / total
+            sns.barplot(
+                data=subset,
+                x="regime",
+                y="share",
+                hue="regime",
+                palette=regime_palette,
+                legend=False,
+                ax=ax,
+            )
+            ax.set_title(horizon)
+            ax.set_xlabel("")
+            ax.set_ylabel("Share of aligned test window")
+            ax.set_ylim(0, 1.0)
+
+        fig.suptitle("Regime Class Balance by Horizon", y=1.03, fontsize=18)
+        plt.tight_layout()
+        save_current_figure("class_balance_by_horizon.png")
         plt.show()
         """
     ),
